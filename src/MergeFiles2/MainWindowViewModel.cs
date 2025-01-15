@@ -50,26 +50,26 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand]
     private void DragDrop(object parameter)
     {
-        if (parameter is DragEventArgs e)
-        {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
-            {
-                var paths = (string[])e.Data.GetData(DataFormats.FileDrop);
-                var filePaths = GetFilesFromPaths(paths);
+        if (parameter is not DragEventArgs e)
+            return;
 
-                foreach (var path in filePaths)
-                {
-                    var fileInfo = new FileInfo(path);
-                    if (fileInfo.Extension.ToLower() != ".ts")
-                        continue;
-                    Files.Add(new FileItem
-                    {
-                        FilePath = fileInfo.FullName,
-                        ModifiedTime = fileInfo.LastWriteTime.ToString(),
-                        CreatedTime = fileInfo.CreationTime.ToString()
-                    });
-                }
-            }
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop))
+            return;
+
+        var paths = (string[])e.Data.GetData(DataFormats.FileDrop);
+        var filePaths = GetFilesFromPaths(paths);
+
+        foreach (var path in filePaths)
+        {
+            var fileInfo = new FileInfo(path);
+            if (fileInfo.Extension.ToLower() != ".ts")
+                continue;
+            Files.Add(new FileItem
+            {
+                FilePath = fileInfo.FullName,
+                ModifiedTime = fileInfo.LastWriteTime.ToString(),
+                CreatedTime = fileInfo.CreationTime.ToString()
+            });
         }
     }
 
@@ -111,55 +111,55 @@ public partial class MainWindowViewModel : ObservableObject
             Title = "选择输出文件位置"
         };
 
-        if (saveFileDialog.ShowDialog() == true)
+        if (saveFileDialog.ShowDialog() != true)
+            return;
+
+        string outputPath = saveFileDialog.FileName;
+
+        try
         {
-            string outputPath = saveFileDialog.FileName;
+            IsRunning = true;
+            StatusMessage = "正在合并文件...";
+            Progress = 0;
 
-            try
+            // 合并文件的异步逻辑
+            await Task.Run(() =>
             {
-                IsRunning = true;
-                StatusMessage = "正在合并文件...";
-                Progress = 0;
+                using var outputStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write);
+                var totalSize = Files.Sum(file => new FileInfo(file.FilePath).Length);
+                long processedSize = 0;
 
-                // 合并文件的异步逻辑
-                await Task.Run(() =>
+                foreach (var file in Files)
                 {
-                    using var outputStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write);
-                    var totalSize = Files.Sum(file => new FileInfo(file.FilePath).Length);
-                    long processedSize = 0;
-
-                    foreach (var file in Files)
+                    var fileInfo = new FileInfo(file.FilePath);
+                    using var inputStream = new FileStream(file.FilePath, FileMode.Open, FileAccess.Read);
+                    byte[] buffer = new byte[1024 * 1024]; // 1MB buffer
+                    int bytesRead;
+                    while ((bytesRead = inputStream.Read(buffer, 0, buffer.Length)) > 0)
                     {
-                        var fileInfo = new FileInfo(file.FilePath);
-                        using var inputStream = new FileStream(file.FilePath, FileMode.Open, FileAccess.Read);
-                        byte[] buffer = new byte[1024 * 1024]; // 1MB buffer
-                        int bytesRead;
-                        while ((bytesRead = inputStream.Read(buffer, 0, buffer.Length)) > 0)
-                        {
-                            outputStream.Write(buffer, 0, bytesRead);
-                            processedSize += bytesRead;
+                        outputStream.Write(buffer, 0, bytesRead);
+                        processedSize += bytesRead;
 
-                            // 更新进度
-                            Progress = processedSize * 100.0 / totalSize;
-                            StatusMessage = $"正在合并文件... {Progress / 100.0:P}";
-                        }
+                        // 更新进度
+                        Progress = processedSize * 100.0 / totalSize;
+                        StatusMessage = $"正在合并文件... {Progress / 100.0:P}";
                     }
-                });
+                }
+            });
 
-                StatusMessage = $"文件合并成功！输出位置：{outputPath}";
-                Progress = 100;
-                MessageBox.Show($"文件合并成功！输出位置：{outputPath}", "成功", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                StatusMessage = $"文件合并失败：{ex.Message}";
-                MessageBox.Show($"文件合并失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-            finally
-            {
-                Progress = 0;
-                IsRunning = false;
-            }
+            StatusMessage = $"文件合并成功！输出位置：{outputPath}";
+            Progress = 100;
+            MessageBox.Show($"文件合并成功！输出位置：{outputPath}", "成功", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"文件合并失败：{ex.Message}";
+            MessageBox.Show($"文件合并失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            Progress = 0;
+            IsRunning = false;
         }
     }
 
